@@ -2,6 +2,11 @@ name: Process Novels
 
 on:
   workflow_dispatch:
+    inputs:
+      batch_id:
+        description: "Import batch ID"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -27,7 +32,7 @@ jobs:
           python-version: "3.12"
 
       - name: Process novels
-        run: python scripts/process_novels.py
+        run: python scripts/process_novels.py --batch-id "${{ inputs.batch_id }}"
 
       - name: Commit changes
         run: |

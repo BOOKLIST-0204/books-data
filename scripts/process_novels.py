@@ -1,14 +1,16 @@
 
+import argparse
 import json
 import re
 from pathlib import Path
+from uuid import UUID
 
 
 # ====== 設定 ======
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-MANIFEST_PATH = REPO_ROOT / "staging" / "manifest.json"
+MANIFEST_DIR = REPO_ROOT / "staging" / "manifests"
 STAGING_DIR = REPO_ROOT / "staging" / "files"
 DUPLICATES_DIR = REPO_ROOT / "duplicates"
 
@@ -39,6 +41,15 @@ def clean_text(text):
             result.append(line)
 
     return "\n".join(result)
+
+
+def validate_batch_id(batch_id):
+    """驗證批次 ID 是否為有效 UUID。"""
+
+    try:
+        return str(UUID(batch_id))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError(f"不合法的 batch ID：{batch_id}")
 
 
 def validate_file(item):
@@ -84,14 +95,24 @@ def validate_file(item):
     return new_name, category, path
 
 
-def load_manifest():
-    if not MANIFEST_PATH.is_file():
+def load_manifest(batch_id):
+    """讀取指定批次的 manifest。"""
+
+    manifest_path = MANIFEST_DIR / f"{batch_id}.json"
+
+    if not manifest_path.is_file():
         raise FileNotFoundError(
-            f"找不到 manifest：{MANIFEST_PATH}"
+            f"找不到 manifest：{manifest_path}"
         )
 
-    with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
+    with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
+
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest 格式錯誤")
+
+    if manifest.get("batchId") != batch_id:
+        raise ValueError("manifest 的 batchId 與執行參數不一致")
 
     files = manifest.get("files")
 
@@ -104,7 +125,7 @@ def load_manifest():
     # 開始處理前，先驗證整批資料
     validated = [validate_file(item) for item in files]
 
-    return validated
+    return manifest_path, validated
 
 
 def load_env(category):
@@ -183,9 +204,12 @@ def get_duplicate_path(filename):
 
 # ====== 主流程 ======
 
-def main():
-    files = load_manifest()
+def main(batch_id):
+    batch_id = validate_batch_id(batch_id)
 
+    manifest_path, files = load_manifest(batch_id)
+
+    print(f"📦 批次編號：{batch_id}")
     print(f"📚 共收到 {len(files)} 本小說")
 
     processed = 0
@@ -237,7 +261,7 @@ def main():
 
     # ====== 清理 manifest ======
 
-    MANIFEST_PATH.unlink(missing_ok=True)
+    manifest_path.unlink(missing_ok=True)
 
     print("\n🎉 批次處理完成")
     print(f"正常加入：{processed}")
@@ -245,4 +269,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Process novel import batch"
+    )
+
+    parser.add_argument(
+        "--batch-id",
+        required=True,
+        help="GitHub Actions workflow batch ID"
+    )
+
+    args = parser.parse_args()
+
+    main(args.batch_id)
